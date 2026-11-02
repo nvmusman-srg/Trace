@@ -42,7 +42,7 @@ No build step. Clone and open:
 
 ```bash
 git clone https://github.com/nvmusman-srg/Trace.git
-cd metadata-inspector
+cd Trace
 ```
 
 Then just open `index.html` in a browser. (Opening via a local server also works and avoids any `file://` quirks:)
@@ -54,7 +54,7 @@ python3 -m http.server 8000
 
 ## Deploy to GitHub Pages
 
-**Option A — one click:** go to **Settings → Pages**, set **Source** to *Deploy from a branch*, pick `main` and `/ (root)`, and save. Your site goes live at `https://<your-username>.github.io/metadata-inspector/`.
+**Option A — one click:** go to **Settings → Pages**, set **Source** to *Deploy from a branch*, pick `main` and `/ (root)`, and save. Your site goes live at `https://<your-username>.github.io/Trace/`.
 
 **Option B — automated:** this repo includes a workflow at `.github/workflows/deploy.yml`. In **Settings → Pages**, set **Source** to *GitHub Actions*. Every push to `main` then deploys automatically.
 
