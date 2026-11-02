@@ -41,7 +41,7 @@ Trace never sends your files anywhere. All parsing and stripping happens locally
 No build step. Clone and open:
 
 ```bash
-git clone https://github.com/nvmusman-srg/metadata-inspector.git
+git clone https://github.com/nvmusman-srg/Trace.git
 cd metadata-inspector
 ```
 
