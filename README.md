@@ -1,4 +1,4 @@
-# 🔎 Trace — Privacy & Metadata Inspector
+# 🔎 Trace - Privacy & Metadata Inspector
 
 See what your files are secretly telling everyone — then strip it out.
 
