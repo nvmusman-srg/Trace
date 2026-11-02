@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Trace — Privacy & Metadata Inspector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+    --ink: #0b1016;
+    --ink-2: #0f151c;
+    --panel: #141c24;
+    --panel-2: #1a242e;
+    --line: #27333d;
+    --line-soft: #1f2a33;
+    --text: #e8eef4;
+    --muted: #8b99a6;
+    --muted-2: #697785;
+    --mono: #c9d6e0;
+    --amber: #f2b14c;
+    --amber-dim: rgba(242, 177, 76, 0.12);
+    --amber-line: rgba(242, 177, 76, 0.4);
+    --red: #ec6a6a;
+    --red-dim: rgba(236, 106, 106, 0.12);
+    --red-line: rgba(236, 106, 106, 0.4);
+    --green: #76c79c;
+    --green-dim: rgba(118, 199, 156, 0.12);
+    --green-line: rgba(118, 199, 156, 0.4);
+    --sans: "Space Grotesk", system-ui, -apple-system, sans-serif;
+    --code: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --pad-top: env(safe-area-inset-top, 0px);
+    --pad-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+    padding-top: var(--pad-top);
+    padding-bottom: var(--pad-bottom);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-padding-top: calc(var(--pad-top) + 12px); -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    color: var(--text);
+    background:
+      radial-gradient(1100px 620px at 78% -8%, rgba(242,177,76,0.06), transparent 60%),
+      radial-gradient(900px 600px at 10% 110%, rgba(118,199,156,0.045), transparent 55%),
+      var(--ink);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0 0 auto; height: var(--pad-top);
+    background: var(--ink); z-index: 40;
+  }
+  a { color: inherit; }
+  .wrap { width: 100%; max-width: 980px; margin: 0 auto; padding: 0 20px; }
+
+  /* ---- top bar ---- */
+  .bar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 14px; padding: 18px 0 10px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .glyph {
+    width: 30px; height: 30px; border: 1.5px solid var(--amber-line);
+    border-radius: 7px; display: grid; place-items: center; color: var(--amber);
+    font-family: var(--code); font-weight: 600; font-size: 15px; position: relative;
+  }
+  .glyph::after {
+    content: ""; position: absolute; width: 8px; height: 8px; right: -4px; bottom: -4px;
+    border-right: 1.5px solid var(--amber-line); border-bottom: 1.5px solid var(--amber-line);
+  }
+  .wordmark { font-weight: 600; letter-spacing: 0.02em; font-size: 16px; }
+  .wordmark span { color: var(--muted-2); font-weight: 400; }
+  .local-chip {
+    font-family: var(--code); font-size: 11.5px; color: var(--green);
+    border: 1px solid var(--green-line); background: var(--green-dim);
+    padding: 5px 10px; border-radius: 999px; display: inline-flex; align-items: center; gap: 7px;
+    white-space: nowrap;
+  }
+  .local-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+  /* ---- hero ---- */
+  .hero { padding: 26px 0 8px; }
+  .hero h1 {
+    font-size: clamp(30px, 6.4vw, 54px); line-height: 1.04; font-weight: 700;
+    letter-spacing: -0.02em; margin: 0 0 18px; max-width: 16ch;
+  }
+  .hero p {
+    color: var(--muted); font-size: clamp(15px, 2.4vw, 17px); max-width: 60ch; margin: 0;
+  }
+
+  /* ---- dropzone ---- */
+  .scanner {
+    margin: 26px 0 8px; position: relative; border-radius: 16px;
+    border: 1.5px dashed var(--line); background:
+      linear-gradient(var(--panel), var(--panel)),
+      repeating-linear-gradient(0deg, transparent, transparent 29px, var(--line-soft) 29px, var(--line-soft) 30px);
+    background-blend-mode: normal;
+    padding: 46px 24px; text-align: center; cursor: pointer;
+    transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+    overflow: hidden;
+  }
+  .scanner:hover { border-color: var(--amber-line); }
+  .scanner.drag { border-color: var(--amber); background-color: var(--panel-2); transform: scale(1.004); }
+  .scanner.busy { pointer-events: none; }
+  .scanner .scanline {
+    position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--amber), transparent);
+    opacity: 0; box-shadow: 0 0 18px 2px rgba(242,177,76,0.5);
+  }
+  .scanner.busy .scanline { animation: sweep 0.9s linear infinite; }
+  @keyframes sweep { 0% { top: 0; opacity: 0.9; } 100% { top: 100%; opacity: 0.9; } }
+  .scan-icon {
+    width: 52px; height: 52px; margin: 0 auto 16px; border: 1.5px solid var(--amber-line);
+    border-radius: 12px; display: grid; place-items: center; color: var(--amber); font-size: 24px;
+    background: var(--amber-dim);
+  }
+  .scan-title { font-size: 18px; font-weight: 600; margin: 0 0 6px; }
+  .scan-sub { color: var(--muted); font-size: 14px; margin: 0; }
+  .scan-formats {
+    margin-top: 16px; display: inline-flex; flex-wrap: wrap; gap: 7px; justify-content: center;
+  }
+  .fmt {
+    font-family: var(--code); font-size: 11px; color: var(--mono);
+    border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; background: var(--ink-2);
+  }
+
+  .reset-row { display: none; justify-content: flex-end; margin: 18px 0 0; }
+  .reset-row.show { display: flex; }
+  .btn-ghost {
+    font-family: var(--sans); font-size: 13px; color: var(--muted); background: transparent;
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .btn-ghost:hover { color: var(--text); border-color: var(--muted-2); }
+
+  /* ---- results ---- */
+  #results { margin-top: 10px; }
+  .card {
+    border: 1px solid var(--line); background: var(--panel); border-radius: 14px;
+    margin-top: 18px; overflow: hidden;
+  }
+  .card-head {
+    display: flex; gap: 14px; align-items: flex-start; justify-content: space-between;
+    padding: 16px 18px; border-bottom: 1px solid var(--line-soft); flex-wrap: wrap;
+  }
+  .file-id { display: flex; gap: 13px; align-items: center; min-width: 0; }
+  .thumb {
+    width: 46px; height: 46px; border-radius: 9px; object-fit: cover; flex: none;
+    border: 1px solid var(--line); background: var(--ink-2);
+  }
+  .thumb.doc { display: grid; place-items: center; font-size: 20px; color: var(--amber); }
+  .file-meta { min-width: 0; }
+  .file-name {
+    font-weight: 600; font-size: 15px; word-break: break-all; line-height: 1.3;
+  }
+  .file-tags { font-family: var(--code); font-size: 11.5px; color: var(--muted-2); margin-top: 3px; }
+  .btn-strip {
+    font-family: var(--sans); font-size: 13px; font-weight: 500; color: var(--ink);
+    background: var(--amber); border: none; border-radius: 9px; padding: 9px 15px; cursor: pointer;
+    white-space: nowrap; transition: filter 0.15s ease;
+  }
+  .btn-strip:hover { filter: brightness(1.07); }
+  .btn-strip:disabled { opacity: 0.5; cursor: default; filter: none; }
+
+  .verdict {
+    display: flex; gap: 11px; align-items: center; padding: 13px 18px;
+    font-size: 14px; font-weight: 500; border-bottom: 1px solid var(--line-soft);
+  }
+  .verdict .vdot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .verdict.clean { color: var(--green); background: var(--green-dim); }
+  .verdict.clean .vdot { background: var(--green); }
+  .verdict.exposed { color: var(--amber); background: var(--amber-dim); }
+  .verdict.exposed .vdot { background: var(--amber); }
+  .reveal-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 18px 4px; }
+  .reveal-pill {
+    font-family: var(--code); font-size: 11px; padding: 4px 9px; border-radius: 6px;
+    border: 1px solid var(--amber-line); color: var(--amber); background: var(--amber-dim);
+  }
+  .reveal-pill.loc { border-color: var(--red-line); color: var(--red); background: var(--red-dim); }
+
+  /* location block */
+  .locblock { margin: 14px 18px; border: 1px solid var(--red-line); border-radius: 11px; background: var(--red-dim); padding: 15px; }
+  .locblock .lbhead { display: flex; align-items: center; gap: 9px; color: var(--red); font-weight: 600; font-size: 13.5px; margin-bottom: 10px; }
+  .coords { font-family: var(--code); font-size: 15px; color: var(--text); letter-spacing: 0.01em; word-break: break-all; }
+  .coord-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+  .coord-actions a, .coord-actions button {
+    font-family: var(--code); font-size: 11.5px; text-decoration: none; cursor: pointer;
+    border: 1px solid var(--line); background: var(--ink-2); color: var(--mono);
+    padding: 6px 11px; border-radius: 7px; transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .coord-actions a:hover, .coord-actions button:hover { border-color: var(--muted-2); color: var(--text); }
+  .loc-note { font-size: 12.5px; color: var(--muted); margin: 11px 0 0; line-height: 1.55; }
+  .loc-note .warn { color: var(--red); }
+
+  /* sections */
+  .sections { padding: 6px 18px 4px; }
+  .sec { border-top: 1px solid var(--line-soft); padding: 14px 0; }
+  .sec:first-child { border-top: none; }
+  .sec-title { display: flex; align-items: center; gap: 9px; font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 11px; }
+  .sec-title .si { color: var(--amber); font-size: 14px; }
+  .rows { display: grid; grid-template-columns: minmax(130px, 34%) 1fr; gap: 7px 16px; }
+  .rk { font-size: 13px; color: var(--muted); }
+  .rv { font-family: var(--code); font-size: 13px; color: var(--mono); word-break: break-word; }
+  .rv.hot { color: var(--amber); }
+
+  details.raw { border-top: 1px solid var(--line-soft); }
+  details.raw summary {
+    list-style: none; cursor: pointer; padding: 14px 18px; font-size: 12.5px; font-weight: 600;
+    color: var(--muted); display: flex; align-items: center; gap: 9px; user-select: none;
+  }
+  details.raw summary::-webkit-details-marker { display: none; }
+  details.raw summary .chev { margin-left: auto; transition: transform 0.18s ease; color: var(--muted-2); }
+  details.raw[open] summary .chev { transform: rotate(90deg); }
+  .raw-table { padding: 0 18px 16px; }
+  .raw-table .rows { grid-template-columns: minmax(150px, 40%) 1fr; gap: 5px 16px; }
+  .raw-table .rk { font-family: var(--code); font-size: 11.5px; color: var(--muted-2); }
+  .raw-table .rv { font-size: 11.5px; }
+
+  .strip-note {
+    margin: 0 18px 16px; font-size: 12.5px; color: var(--muted); line-height: 1.55;
+    border: 1px solid var(--line-soft); border-radius: 9px; padding: 11px 13px; background: var(--ink-2);
+  }
+  .strip-note.ok { color: var(--green); border-color: var(--green-line); background: var(--green-dim); }
+  .strip-note.err { color: var(--red); border-color: var(--red-line); background: var(--red-dim); }
+
+  .error-card { color: var(--muted); font-size: 13.5px; padding: 15px 18px; }
+
+  /* ---- education ---- */
+  .edu { margin: 54px 0 20px; }
+  .edu-h {
+    font-size: 13px; font-weight: 600; color: var(--muted-2); font-family: var(--code);
+    border-bottom: 1px solid var(--line-soft); padding-bottom: 12px; margin-bottom: 26px;
+  }
+  .edu h2 { font-size: clamp(21px, 4vw, 27px); font-weight: 600; letter-spacing: -0.01em; margin: 0 0 20px; }
+  .reveal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; }
+  .reveal-cell { background: var(--panel); padding: 18px; }
+  .reveal-cell .rc-icon { font-size: 19px; margin-bottom: 9px; }
+  .reveal-cell h3 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+  .reveal-cell p { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.55; }
+
+  .how { margin-top: 40px; }
+  .how h2 { margin-bottom: 8px; }
+  .how > .sub { color: var(--muted); font-size: 14px; margin: 0 0 22px; max-width: 62ch; }
+  .guide { display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 14px; }
+  .guide-card { border: 1px solid var(--line); border-radius: 12px; padding: 18px; background: var(--panel); }
+  .guide-card .gc-top { display: flex; align-items: center; gap: 10px; margin-bottom: 13px; }
+  .guide-card .gc-ic { font-size: 18px; }
+  .guide-card h3 { font-size: 14.5px; font-weight: 600; margin: 0; }
+  .guide-card ol { margin: 0; padding-left: 18px; }
+  .guide-card li { font-size: 13px; color: var(--muted); margin-bottom: 8px; line-height: 1.5; }
+  .guide-card li:last-child { margin-bottom: 0; }
+  .guide-card code { font-family: var(--code); font-size: 11.5px; color: var(--mono); background: var(--ink-2); padding: 1.5px 5px; border-radius: 4px; word-break: break-word; }
+  .tip { color: var(--amber); }
+
+  footer {
+    margin: 46px 0 30px; padding-top: 20px; border-top: 1px solid var(--line-soft);
+    color: var(--muted-2); font-size: 12.5px; line-height: 1.6;
+  }
+  footer .code { font-family: var(--code); }
+
+  @media (max-width: 560px) {
+    .rows { grid-template-columns: 1fr; gap: 2px 0; }
+    .rows .rk { margin-top: 8px; }
+    .rows .rk:first-child { margin-top: 0; }
+    .card-head { flex-direction: column; }
+    .btn-strip { width: 100%; }
+    .local-chip { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .scanner.busy .scanline { animation: none; opacity: 0.6; top: 50%; }
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="bar">
+    <div class="brand">
+      <div class="glyph">T</div>
+      <div class="wordmark">Trace <span>/ metadata inspector</span></div>
+    </div>
+    <div class="local-chip"><span class="dot"></span> Runs in your browser · nothing uploaded</div>
+  </div>
+
+  <section class="hero">
+    <h1>The photo you just sent knows where you live.</h1>
+    <p>Phone cameras stamp photos with GPS coordinates and a serial number. Word and PDF files quietly store your name and edit history. Drop any file to see the hidden metadata it carries — then strip it and download a clean copy. Every byte stays on this device.</p>
+  </section>
+
+  <div class="scanner" id="scanner" tabindex="0" role="button" aria-label="Choose or drop a file to inspect">
+    <div class="scanline"></div>
+    <div class="scan-icon">⤓</div>
+    <p class="scan-title">Drop a file to inspect</p>
+    <p class="scan-sub">or tap to choose from your device</p>
+    <div class="scan-formats">
+      <span class="fmt">JPG</span><span class="fmt">HEIC</span><span class="fmt">PNG</span>
+      <span class="fmt">WEBP</span><span class="fmt">TIFF</span><span class="fmt">PDF</span><span class="fmt">DOCX</span>
+    </div>
+  </div>
+  <input type="file" id="fileInput" multiple accept="image/*,.pdf,.docx,.jpg,.jpeg,.png,.webp,.tif,.tiff,.heic,.heif" hidden />
+
+  <div class="reset-row" id="resetRow">
+    <button class="btn-ghost" id="clearBtn">Clear all · forget these files</button>
+  </div>
+
+  <div id="results"></div>
+
+  <section class="edu">
+    <div class="edu-h">// what files reveal</div>
+    <h2>Four things hiding in your files</h2>
+    <div class="reveal-grid">
+      <div class="reveal-cell">
+        <div class="rc-icon">📍</div>
+        <h3>Where you were</h3>
+        <p>Phone photos embed GPS down to a few metres. A single picture can pin your home, campus, or workplace on a map.</p>
+      </div>
+      <div class="reveal-cell">
+        <div class="rc-icon">📷</div>
+        <h3>What you used</h3>
+        <p>Exact camera or phone model, lens, settings — and often a unique camera serial number that links every photo you take.</p>
+      </div>
+      <div class="reveal-cell">
+        <div class="rc-icon">🪪</div>
+        <h3>Who you are</h3>
+        <p>Documents record the author and “last modified by” names. Submit a file someone else wrote and it can show whose it really was.</p>
+      </div>
+      <div class="reveal-cell">
+        <div class="rc-icon">🕓</div>
+        <h3>When, exactly</h3>
+        <p>Creation and edit timestamps to the second, plus total editing time — enough to reconstruct a timeline of when you worked.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="how">
+    <h2>How to strip metadata yourself</h2>
+    <p class="sub">For images, the <span class="tip">Strip &amp; download</span> button above does it instantly. Here is how to do it by hand on each platform, including for documents.</p>
+    <div class="guide">
+
+      <div class="guide-card">
+        <div class="gc-top"><span class="gc-ic">📱</span><h3>iPhone / iPad</h3></div>
+        <ol>
+          <li>Open <strong>Photos</strong>, pick the image, tap <strong>Share</strong>.</li>
+          <li>At the top, tap <strong>Options</strong> and turn <strong>Location</strong> off before sharing.</li>
+          <li>To wipe it permanently: tap the <code>ⓘ</code> info button → <strong>Adjust</strong> → remove location.</li>
+          <li class="tip">Tip: Settings → Privacy → Location → Camera → set to “Never” to stop tagging new photos.</li>
+        </ol>
+      </div>
+
+      <div class="guide-card">
+        <div class="gc-top"><span class="gc-ic">🤖</span><h3>Android</h3></div>
+        <ol>
+          <li>Open the photo in <strong>Google Photos</strong>, swipe up for details.</li>
+          <li>Tap <strong>Edit location → No location</strong> to remove it.</li>
+          <li>Prevent future tags: Camera app → Settings → turn off <strong>Location tags / Save location</strong>.</li>
+          <li class="tip">Files app → long-press → Details also shows what is stored.</li>
+        </ol>
+      </div>
+
+      <div class="guide-card">
+        <div class="gc-top"><span class="gc-ic">🪟</span><h3>Windows</h3></div>
+        <ol>
+          <li>Right-click the file → <strong>Properties</strong> → <strong>Details</strong> tab.</li>
+          <li>Click <strong>Remove Properties and Personal Information</strong> at the bottom.</li>
+          <li>Choose <strong>Create a copy with all possible properties removed</strong>.</li>
+          <li class="tip">Works for photos, PDFs, and Office files alike.</li>
+        </ol>
+      </div>
+
+      <div class="guide-card">
+        <div class="gc-top"><span class="gc-ic">🍎</span><h3>macOS</h3></div>
+        <ol>
+          <li>Photos: select → <strong>Image → Location → Remove Location</strong>, then export.</li>
+          <li>Any file via Terminal with <strong>exiftool</strong>:</li>
+          <li><code>exiftool -all= photo.jpg</code></li>
+          <li class="tip">Install it first: <code>brew install exiftool</code>.</li>
+        </ol>
+      </div>
+
+      <div class="guide-card">
+        <div class="gc-top"><span class="gc-ic">📄</span><h3>Word &amp; PDF documents</h3></div>
+        <ol>
+          <li>Word: <strong>File → Info → Check for Issues → Inspect Document</strong>, then remove document properties and personal info.</li>
+          <li>PDF: in Acrobat, <strong>Tools → Redact → Sanitize Document</strong>.</li>
+          <li>Cross-platform: <code>exiftool -all= file.pdf</code> or <code>qpdf</code> to rewrite cleanly.</li>
+          <li class="tip">Re-saving a Word file as PDF does <em>not</em> remove the author name.</li>
+        </ol>
+      </div>
+
+      <div class="guide-card">
+        <div class="gc-top"><span class="gc-ic">🧰</span><h3>The one tool to learn</h3></div>
+        <ol>
+          <li><strong>ExifTool</strong> is the standard for reading and wiping metadata on any file type.</li>
+          <li>Read everything: <code>exiftool file</code></li>
+          <li>Strip everything: <code>exiftool -all= file</code></li>
+          <li>Batch a folder: <code>exiftool -all= -r .</code></li>
+          <li class="tip">Free, scriptable, and what forensics and OSINT folks actually use.</li>
+        </ol>
+      </div>
+
+    </div>
+  </section>
+
+  <footer>
+    <span class="code">Trace</span> reads and strips metadata entirely inside your browser using the exifr and JSZip libraries — no server, no upload, no tracking. Closing or refreshing this page forgets every file instantly.<br />
+    Built as an open educational tool for understanding digital privacy. PDF and DOCX parsing covers the common uncompressed metadata; some files may hide more. When in doubt, verify with ExifTool.
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var scanner = document.getElementById("scanner");
+  var input = document.getElementById("fileInput");
+  var results = document.getElementById("results");
+  var resetRow = document.getElementById("resetRow");
+  var clearBtn = document.getElementById("clearBtn");
+  var objectUrls = [];
+
+  // ---------- known EXIF/XMP key map: key -> {group, label, hot} ----------
+  var G_LOC = "Location", G_DEV = "Device & capture", G_TIME = "Timestamps",
+      G_WHO = "Creator & software", G_IMG = "Image";
+  var KNOWN = {
+    Make:            { g: G_DEV, l: "Make", hot: true },
+    Model:           { g: G_DEV, l: "Device model", hot: true },
+    LensModel:       { g: G_DEV, l: "Lens", hot: false },
+    LensMake:        { g: G_DEV, l: "Lens make", hot: false },
+    BodySerialNumber:{ g: G_DEV, l: "Camera serial number", hot: true },
+    SerialNumber:    { g: G_DEV, l: "Serial number", hot: true },
+    LensSerialNumber:{ g: G_DEV, l: "Lens serial number", hot: true },
+    FNumber:         { g: G_DEV, l: "Aperture", hot: false, fmt: "fnum" },
+    ExposureTime:    { g: G_DEV, l: "Shutter", hot: false, fmt: "shutter" },
+    ISO:             { g: G_DEV, l: "ISO", hot: false, fmt: "iso" },
+    ISOSpeedRatings: { g: G_DEV, l: "ISO", hot: false, fmt: "iso" },
+    FocalLength:     { g: G_DEV, l: "Focal length", hot: false, fmt: "mm" },
+    Flash:           { g: G_DEV, l: "Flash", hot: false },
+    Orientation:     { g: G_DEV, l: "Orientation", hot: false },
+
+    DateTimeOriginal:{ g: G_TIME, l: "Taken", hot: true, fmt: "date" },
+    CreateDate:      { g: G_TIME, l: "Created", hot: true, fmt: "date" },
+    ModifyDate:      { g: G_TIME, l: "Modified", hot: false, fmt: "date" },
+    DateTime:        { g: G_TIME, l: "Date/time", hot: false, fmt: "date" },
+    OffsetTime:      { g: G_TIME, l: "UTC offset", hot: false },
+    OffsetTimeOriginal:{ g: G_TIME, l: "UTC offset (taken)", hot: false },
+
+    Artist:          { g: G_WHO, l: "Author", hot: true },
+    Creator:         { g: G_WHO, l: "Author", hot: true },
+    "dc:creator":    { g: G_WHO, l: "Author", hot: true },
+    Copyright:       { g: G_WHO, l: "Copyright", hot: false },
+    Rights:          { g: G_WHO, l: "Rights", hot: false },
+    Software:        { g: G_WHO, l: "Software", hot: true },
+    CreatorTool:     { g: G_WHO, l: "Software", hot: true },
+    HostComputer:    { g: G_WHO, l: "Computer name", hot: true },
+    ProcessingSoftware:{ g: G_WHO, l: "Processing software", hot: false },
+    OwnerName:       { g: G_WHO, l: "Owner name", hot: true },
+
+    ImageWidth:      { g: G_IMG, l: "Width", hot: false, fmt: "px" },
+    ImageHeight:     { g: G_IMG, l: "Height", hot: false, fmt: "px" },
+    ExifImageWidth:  { g: G_IMG, l: "Width", hot: false, fmt: "px" },
+    ExifImageHeight: { g: G_IMG, l: "Height", hot: false, fmt: "px" },
+    ColorSpace:      { g: G_IMG, l: "Color space", hot: false },
+    XResolution:     { g: G_IMG, l: "X resolution", hot: false },
+    YResolution:     { g: G_IMG, l: "Y resolution", hot: false }
+  };
+  var GROUP_ORDER = [G_LOC, G_DEV, G_TIME, G_WHO, G_IMG];
+  var GROUP_ICON = {}; GROUP_ICON[G_LOC] = "📍"; GROUP_ICON[G_DEV] = "📷";
+  GROUP_ICON[G_TIME] = "🕓"; GROUP_ICON[G_WHO] = "🪪"; GROUP_ICON[G_IMG] = "🖼";
+
+  // ---------- formatting helpers ----------
+  function fmtValue(v, kind) {
+    if (v === null || v === undefined) return "";
+    try {
+      if (kind === "date") {
+        var d = (v instanceof Date) ? v : new Date(v);
+        if (!isNaN(d.getTime())) return d.toLocaleString();
+        return String(v);
+      }
+      if (kind === "fnum") return "f/" + (+v).toFixed(1).replace(/\.0$/, "");
+      if (kind === "iso") return "ISO " + v;
+      if (kind === "mm") return (+v).toFixed(0) + " mm";
+      if (kind === "px") return (+v).toLocaleString() + " px";
+      if (kind === "shutter") {
+        var n = +v;
+        if (n && n < 1) return "1/" + Math.round(1 / n) + " s";
+        return n + " s";
+      }
+    } catch (e) {}
+    if (v instanceof Date) return v.toLocaleString();
+    if (Array.isArray(v)) return v.join(", ");
+    if (typeof v === "object") { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    if (typeof v === "number") return (Math.round(v * 1e6) / 1e6).toString();
+    return String(v);
+  }
+  function humanKey(k) {
+    return k.replace(/^.*:/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+  }
+  function fmtSize(b) {
+    if (b < 1024) return b + " B";
+    if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+    return (b / 1048576).toFixed(1) + " MB";
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  // ---------- build normalized model from a flat metadata object ----------
+  function buildModel(all, gps, extraRaw) {
+    var groups = {}; var raw = []; var revealing = []; var revealSet = {};
+    function addReveal(txt, isLoc) { if (!revealSet[txt]) { revealSet[txt] = 1; revealing.push({ t: txt, loc: !!isLoc }); } }
+    function pushGroup(name, item) { (groups[name] = groups[name] || []).push(item); }
+
+    var src = all || {};
+    Object.keys(src).forEach(function (key) {
+      var val = src[key];
+      if (val === null || val === undefined || val === "") return;
+      if (/^GPS/.test(key) || key === "latitude" || key === "longitude") { /* handled via gps */ }
+      var def = KNOWN[key];
+      var display = fmtValue(val, def && def.fmt);
+      if (display === "" || display === "[object Object]") return;
+      raw.push({ k: humanKey(key), v: display });
+      if (def) {
+        pushGroup(def.g, { k: def.l, v: display, hot: def.hot });
+        if (def.hot) {
+          if (/serial/i.test(def.l)) addReveal("Serial number");
+          else if (/author|owner/i.test(def.l)) addReveal("Your name / author");
+          else if (/software|computer/i.test(def.l)) addReveal("Software & computer");
+          else if (/model|make/i.test(def.l)) addReveal("Exact device");
+          else if (/taken|created/i.test(def.l)) addReveal("Exact date & time");
+        }
+      }
+    });
+
+    if (extraRaw) {
+      extraRaw.forEach(function (r) {
+        raw.push({ k: r.k, v: r.v });
+        pushGroup(r.g || G_WHO, { k: r.k, v: r.v, hot: !!r.hot });
+        if (r.reveal) addReveal(r.reveal);
+      });
+    }
+
+    var gpsObj = null;
+    if (gps && typeof gps.latitude === "number" && typeof gps.longitude === "number") {
+      gpsObj = { lat: gps.latitude, lng: gps.longitude };
+      addReveal("Precise GPS location", true);
+      raw.push({ k: "GPS latitude", v: gps.latitude.toFixed(6) });
+      raw.push({ k: "GPS longitude", v: gps.longitude.toFixed(6) });
+    }
+
+    // order groups
+    var ordered = [];
+    GROUP_ORDER.forEach(function (name) {
+      if (name === G_LOC) return; // location rendered separately
+      if (groups[name] && groups[name].length) ordered.push({ title: name, icon: GROUP_ICON[name], items: groups[name] });
+    });
+
+    return { gps: gpsObj, sections: ordered, raw: raw, revealing: revealing };
+  }
+
+  // ---------- extractors ----------
+  async function extractImage(file) {
+    var all = null, gps = null;
+    try { all = await exifr.parse(file, { tiff: true, ifd0: true, exif: true, gps: true, interop: true, ifd1: true, xmp: true, iptc: true, jfif: true, ihdr: true, mergeOutput: true, translateKeys: true, translateValues: true, reviveValues: true }); }
+    catch (e) { all = null; }
+    try { gps = await exifr.gps(file); } catch (e) { gps = null; }
+    var model = buildModel(all, gps, null);
+    model.canStrip = "image";
+    return model;
+  }
+
+  function decodePdfString(s) {
+    // parenthesized or hex <FEFF...> PDF string -> text
+    if (s == null) return "";
+    s = s.trim();
+    if (s.charAt(0) === "<" && s.charAt(s.length - 1) === ">") {
+      var hex = s.slice(1, -1).replace(/\s+/g, "");
+      var bytes = [];
+      for (var i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.substr(i, 2), 16));
+      if (bytes[0] === 0xFE && bytes[1] === 0xFF) {
+        var out = "";
+        for (var j = 2; j < bytes.length; j += 2) out += String.fromCharCode((bytes[j] << 8) | (bytes[j + 1] || 0));
+        return out;
+      }
+      return bytes.map(function (b) { return String.fromCharCode(b); }).join("");
+    }
+    return s.replace(/^\(/, "").replace(/\)$/, "").replace(/\\([()\\])/g, "$1");
+  }
+  function fmtPdfDate(d) {
+    var m = /D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?/.exec(d);
+    if (!m) return d;
+    var dt = new Date(+m[1], (+m[2] || 1) - 1, +m[3] || 1, +m[4] || 0, +m[5] || 0, +m[6] || 0);
+    return isNaN(dt.getTime()) ? d : dt.toLocaleString();
+  }
+  async function extractPdf(file) {
+    var buf = await file.arrayBuffer();
+    var bytes = new Uint8Array(buf);
+    var str = "";
+    var chunk = 0x8000;
+    for (var i = 0; i < bytes.length; i += chunk) str += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    var extra = [];
+    function grabInfo(name, label, group, hot, reveal, isDate) {
+      var re = new RegExp("/" + name + "\\s*(\\([^)]*\\)|<[0-9A-Fa-f\\s]+>)");
+      var m = re.exec(str);
+      if (m) {
+        var v = decodePdfString(m[1]);
+        if (isDate) v = fmtPdfDate(v);
+        if (v && v.trim()) extra.push({ k: label, v: v.trim(), g: group, hot: hot, reveal: reveal });
+      }
+    }
+    grabInfo("Author", "Author", G_WHO, true, "Your name / author");
+    grabInfo("Creator", "Created with", G_WHO, true, "Software & computer");
+    grabInfo("Producer", "Producer", G_WHO, true, "Software & computer");
+    grabInfo("Title", "Title", G_WHO, false);
+    grabInfo("Subject", "Subject", G_WHO, false);
+    grabInfo("Keywords", "Keywords", G_WHO, false);
+    grabInfo("CreationDate", "Created", G_TIME, true, "Exact date & time", true);
+    grabInfo("ModDate", "Modified", G_TIME, false, null, true);
+
+    // XMP packet
+    var xmp = /<x:xmpmeta[\s\S]*?<\/x:xmpmeta>/.exec(str);
+    if (xmp) {
+      var xt = xmp[0];
+      function xmlVal(tag) {
+        var r = new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)</" + tag + ">");
+        var mm = r.exec(xt); if (!mm) return null;
+        var inner = mm[1].replace(/<[^>]+>/g, "").trim();
+        return inner || null;
+      }
+      var seen = {}; extra.forEach(function (e) { seen[e.k] = 1; });
+      var dcc = xmlVal("dc:creator"); if (dcc && !seen["Author"]) extra.push({ k: "Author (XMP)", v: dcc, g: G_WHO, hot: true, reveal: "Your name / author" });
+      var ct = xmlVal("xmp:CreatorTool"); if (ct && !seen["Created with"]) extra.push({ k: "Software (XMP)", v: ct, g: G_WHO, hot: true, reveal: "Software & computer" });
+    }
+    var model = buildModel(null, null, extra);
+    model.canStrip = "none";
+    model.stripHint = "pdf";
+    return model;
+  }
+
+  async function extractDocx(file) {
+    var zip = await JSZip.loadAsync(file);
+    var extra = [];
+    async function readXml(path) { var f = zip.file(path); return f ? await f.async("string") : null; }
+    function val(xml, tag) {
+      if (!xml) return null;
+      var r = new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)</" + tag + ">");
+      var m = r.exec(xml); return m ? m[1].replace(/<[^>]+>/g, "").trim() : null;
+    }
+    var core = await readXml("docProps/core.xml");
+    var app = await readXml("docProps/app.xml");
+    function add(v, label, group, hot, reveal, isDate) {
+      if (v == null || v === "") return;
+      if (isDate) { var d = new Date(v); if (!isNaN(d.getTime())) v = d.toLocaleString(); }
+      extra.push({ k: label, v: v, g: group, hot: hot, reveal: reveal });
+    }
+    add(val(core, "dc:creator"), "Author", G_WHO, true, "Your name / author");
+    add(val(core, "cp:lastModifiedBy"), "Last modified by", G_WHO, true, "Your name / author");
+    add(val(core, "dc:title"), "Title", G_WHO, false);
+    add(val(core, "dc:subject"), "Subject", G_WHO, false);
+    add(val(core, "dc:description"), "Comments", G_WHO, false);
+    add(val(core, "cp:keywords"), "Keywords", G_WHO, false);
+    add(val(core, "cp:revision"), "Revision number", G_TIME, false);
+    add(val(core, "dcterms:created"), "Created", G_TIME, true, "Exact date & time", true);
+    add(val(core, "dcterms:modified"), "Modified", G_TIME, false, null, true);
+    add(val(app, "Company"), "Company", G_WHO, true, "Organisation");
+    add(val(app, "Manager"), "Manager", G_WHO, true);
+    add(val(app, "Application"), "Application", G_WHO, true, "Software & computer");
+    add(val(app, "AppVersion"), "App version", G_WHO, false);
+    add(val(app, "Template"), "Template", G_WHO, false);
+    var tt = val(app, "TotalTime");
+    if (tt && +tt > 0) add(tt + " min", "Total editing time", G_TIME, true, "How long you worked");
+
+    var model = buildModel(null, null, extra);
+    model.canStrip = "none";
+    model.stripHint = "docx";
+    return model;
+  }
+
+  // ---------- file type detection ----------
+  function kindOf(file) {
+    var n = file.name.toLowerCase();
+    var t = file.type;
+    if (/\.pdf$/.test(n) || t === "application/pdf") return "pdf";
+    if (/\.docx$/.test(n) || t === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "docx";
+    if (/\.(jpe?g|png|webp|tiff?|heic|heif|avif|gif|bmp|dng)$/.test(n) || /^image\//.test(t)) return "image";
+    return "other";
+  }
+  function friendlyType(file, kind) {
+    var ext = (file.name.split(".").pop() || "").toUpperCase();
+    if (kind === "pdf") return "PDF document";
+    if (kind === "docx") return "Word document";
+    if (kind === "image") return ext + " image";
+    return ext || "File";
+  }
+
+  // ---------- strip image via canvas (drops all metadata) ----------
+  async function stripImageFile(file, btn) {
+    var noteId = btn.getAttribute("data-note");
+    var note = document.getElementById(noteId);
+    try {
+      var bitmap = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(function () { return null; });
+      if (!bitmap) {
+        // fallback via <img>
+        var url = URL.createObjectURL(file); objectUrls.push(url);
+        bitmap = await new Promise(function (res, rej) {
+          var im = new Image();
+          im.onload = function () { res(im); };
+          im.onerror = function () { rej(new Error("decode")); };
+          im.src = url;
+        }).catch(function () { return null; });
+      }
+      if (!bitmap) throw new Error("This format can’t be re-encoded in the browser (common for HEIC in Chrome). Use ExifTool: exiftool -all= yourfile");
+
+      var w = bitmap.width || bitmap.naturalWidth, h = bitmap.height || bitmap.naturalHeight;
+      var canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+
+      var isPng = /png$/i.test(file.type) || /\.png$/i.test(file.name);
+      var outType = isPng ? "image/png" : "image/jpeg";
+      var outExt = isPng ? "png" : "jpg";
+      var blob = await new Promise(function (res) { canvas.toBlob(res, outType, isPng ? undefined : 0.92); });
+      if (!blob) throw new Error("Could not encode the cleaned image.");
+
+      var dlUrl = URL.createObjectURL(blob); objectUrls.push(dlUrl);
+      var base = file.name.replace(/\.[^.]+$/, "");
+      var a = document.createElement("a");
+      a.href = dlUrl; a.download = "clean-" + base + "." + outExt;
+      document.body.appendChild(a); a.click(); a.remove();
+
+      if (note) {
+        note.className = "strip-note ok";
+        note.textContent = "Clean copy downloaded (" + fmtSize(blob.size) + "). All EXIF, GPS and author data was removed by re-encoding the pixels. Orientation was baked in so it displays correctly.";
+      }
+    } catch (err) {
+      if (note) { note.className = "strip-note err"; note.textContent = String(err.message || err); }
+    }
+  }
+
+  // ---------- render one result card ----------
+  function renderCard(file, kind, model) {
+    var card = document.createElement("div");
+    card.className = "card";
+    var isImg = kind === "image";
+    var thumbHtml;
+    if (isImg) {
+      var u = URL.createObjectURL(file); objectUrls.push(u);
+      thumbHtml = '<img class="thumb" src="' + u + '" alt="preview" />';
+    } else {
+      thumbHtml = '<div class="thumb doc">' + (kind === "pdf" ? "📄" : "📝") + "</div>";
+    }
+
+    var count = model.revealing.length;
+    var hasLoc = model.revealing.some(function (r) { return r.loc; });
+
+    var noteId = "note-" + Math.random().toString(36).slice(2, 8);
+    var stripBtn = "";
+    if (model.canStrip === "image") {
+      stripBtn = '<button class="btn-strip" data-note="' + noteId + '">Strip &amp; download</button>';
+    }
+
+    var verdict = count === 0
+      ? '<div class="verdict clean"><span class="vdot"></span>Clean — no revealing metadata found in this file.</div>'
+      : '<div class="verdict exposed"><span class="vdot"></span>' + count + (count === 1 ? " thing" : " things") + " this file reveals about you</div>";
+
+    var pills = "";
+    if (count) {
+      pills = '<div class="reveal-list">' + model.revealing.map(function (r) {
+        return '<span class="reveal-pill' + (r.loc ? " loc" : "") + '">' + esc(r.t) + "</span>";
+      }).join("") + "</div>";
+    }
+
+    var locHtml = "";
+    if (model.gps) {
+      var la = model.gps.lat, ln = model.gps.lng;
+      var osm = "https://www.openstreetmap.org/?mlat=" + la + "&mlon=" + ln + "#map=17/" + la + "/" + ln;
+      locHtml =
+        '<div class="locblock">' +
+          '<div class="lbhead">📍 Location exposed</div>' +
+          '<div class="coords">' + la.toFixed(6) + ", " + ln.toFixed(6) + "</div>" +
+          '<div class="coord-actions">' +
+            '<button data-copy="' + la.toFixed(6) + ", " + ln.toFixed(6) + '">Copy coordinates</button>' +
+            '<a href="' + osm + '" target="_blank" rel="noopener noreferrer">Open in OpenStreetMap ↗</a>' +
+          "</div>" +
+          '<p class="loc-note">Phone GPS is accurate to a few metres, so this points at a specific building — likely a home, campus, or workplace. <span class="warn">Opening the map link sends these coordinates to that map provider.</span></p>' +
+        "</div>";
+    }
+
+    var sectionsHtml = "";
+    if (model.sections.length) {
+      sectionsHtml = '<div class="sections">' + model.sections.map(function (sec) {
+        var rows = sec.items.map(function (it) {
+          return '<div class="rk">' + esc(it.k) + '</div><div class="rv' + (it.hot ? " hot" : "") + '">' + esc(it.v) + "</div>";
+        }).join("");
+        return '<div class="sec"><div class="sec-title"><span class="si">' + sec.icon + "</span>" + esc(sec.title) +
+               '</div><div class="rows">' + rows + "</div></div>";
+      }).join("") + "</div>";
+    }
+
+    var rawHtml = "";
+    if (model.raw.length) {
+      var rawRows = model.raw.map(function (r) {
+        return '<div class="rk">' + esc(r.k) + '</div><div class="rv">' + esc(r.v) + "</div>";
+      }).join("");
+      rawHtml =
+        '<details class="raw"><summary>All raw tags (' + model.raw.length + ')<span class="chev">›</span></summary>' +
+        '<div class="raw-table"><div class="rows">' + rawRows + "</div></div></details>";
+    }
+
+    var stripNote = "";
+    if (model.canStrip === "image") {
+      stripNote = '<div class="strip-note" id="' + noteId + '">Click <strong>Strip &amp; download</strong> to get a copy with all metadata removed. The original on your device is untouched.</div>';
+    } else if (model.stripHint === "docx") {
+      stripNote = '<div class="strip-note">To clean a Word file: <strong>File → Info → Check for Issues → Inspect Document</strong>, then remove document properties and personal information. Or run <code style="font-family:var(--code)">exiftool -all= file.docx</code>.</div>';
+    } else if (model.stripHint === "pdf") {
+      stripNote = '<div class="strip-note">To clean a PDF: in Acrobat use <strong>Tools → Redact → Sanitize Document</strong>, or run <code style="font-family:var(--code)">exiftool -all= file.pdf</code>.</div>';
+    }
+
+    card.innerHTML =
+      '<div class="card-head">' +
+        '<div class="file-id">' + thumbHtml +
+          '<div class="file-meta"><div class="file-name">' + esc(file.name) + '</div>' +
+          '<div class="file-tags">' + esc(friendlyType(file, kind)) + " · " + fmtSize(file.size) + "</div></div>" +
+        "</div>" + stripBtn +
+      "</div>" +
+      verdict + pills + locHtml + sectionsHtml + rawHtml + stripNote;
+
+    // wire strip button
+    var sb = card.querySelector(".btn-strip");
+    if (sb) sb.addEventListener("click", function () { stripImageFile(file, sb); });
+    // wire copy buttons
+    card.querySelectorAll("[data-copy]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var txt = b.getAttribute("data-copy");
+        var done = function () { var o = b.textContent; b.textContent = "Copied ✓"; setTimeout(function () { b.textContent = o; }, 1400); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, done);
+        else done();
+      });
+    });
+
+    return card;
+  }
+
+  function renderError(file, msg) {
+    var card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = '<div class="card-head"><div class="file-id"><div class="thumb doc">⚠</div>' +
+      '<div class="file-meta"><div class="file-name">' + esc(file.name) + '</div>' +
+      '<div class="file-tags">Could not read</div></div></div></div>' +
+      '<div class="error-card">' + esc(msg) + "</div>";
+    return card;
+  }
+
+  // ---------- main pipeline ----------
+  async function handleFiles(fileList) {
+    var files = Array.prototype.slice.call(fileList);
+    if (!files.length) return;
+    scanner.classList.add("busy");
+    resetRow.classList.add("show");
+    // small delay so the scan animation reads as intentional
+    await new Promise(function (r) { setTimeout(r, 420); });
+
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i];
+      var kind = kindOf(file);
+      var card;
+      try {
+        var model;
+        if (kind === "image") model = await extractImage(file);
+        else if (kind === "pdf") model = await extractPdf(file);
+        else if (kind === "docx") model = await extractDocx(file);
+        else { card = renderError(file, "Unsupported file type. Try a JPG, HEIC, PNG, PDF, or DOCX file."); }
+        if (!card) card = renderCard(file, kind, model);
+      } catch (err) {
+        card = renderError(file, "Something went wrong reading this file: " + (err.message || err));
+      }
+      results.insertBefore(card, results.firstChild);
+    }
+    scanner.classList.remove("busy");
+  }
+
+  function clearAll() {
+    results.innerHTML = "";
+    resetRow.classList.remove("show");
+    objectUrls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+    objectUrls = [];
+    input.value = "";
+  }
+
+  // ---------- events ----------
+  scanner.addEventListener("click", function () { input.click(); });
+  scanner.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+  input.addEventListener("change", function (e) { handleFiles(e.target.files); });
+  clearBtn.addEventListener("click", clearAll);
+
+  ["dragenter", "dragover"].forEach(function (ev) {
+    scanner.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); scanner.classList.add("drag"); });
+  });
+  ["dragleave", "dragend"].forEach(function (ev) {
+    scanner.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); scanner.classList.remove("drag"); });
+  });
+  scanner.addEventListener("drop", function (e) {
+    e.preventDefault(); e.stopPropagation(); scanner.classList.remove("drag");
+    if (e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+  });
+  // prevent the browser from navigating when a file is dropped outside the zone
+  window.addEventListener("dragover", function (e) { e.preventDefault(); });
+  window.addEventListener("drop", function (e) { e.preventDefault(); });
+})();
+</script>
+</body>
+</html>

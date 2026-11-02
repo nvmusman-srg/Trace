@@ -1,0 +1,22 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Node (only if contributors add tooling)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Logs & misc
+*.log
+
+# Local vendored libraries (optional offline setup)
+# Remove this line if you commit a lib/ folder for offline use
+lib/
